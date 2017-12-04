@@ -1527,10 +1527,11 @@ def osdize_part(dev, osd_format, osd_journal, reformat_osd=False,
     status_set('maintenance', 'Initializing shared device {}'.format(dev))
     if not is_osd_disk(dev):
         log('Creating ceph partitions on: {}'.format(dev), DEBUG)
-        cmds = ["sgdisk -n 0:0:+100M -t 0:4FBD7E29-9D25-41B8-AFD0-062C0CEFF05D "
-                "-c 0:ceph data {}".format(dev),
-                "sgdisk -n 0:0:0 -t 0:CAFECAFE-9B03-4F30-B4C6-B4B80CEFF106 "
-                "-c 0:ceph block {}".format(dev)
+        cmds = ['sgdisk -n 0:0:+100M -t 0:4FBD7E29-9D25-41B8-AFD0-062C0CEFF05D '
+                '-c "0:ceph data" {}'.format(dev),
+                'sgdisk -n 0:0:0 -t 0:CAFECAFE-9B03-4F30-B4C6-B4B80CEFF106 '
+                '-c "0:ceph block" {}'.format(dev),
+                'partprobe'
                 ]
         for cmd in cmds:
             try:
@@ -1561,9 +1562,9 @@ def osdize_part(dev, osd_format, osd_journal, reformat_osd=False,
     block = None
     for partition in partitions:
         log('Checking partition: {}'.format(partition.name[0]), DEBUG)
-        if partition.name[0] == "ceph\x20data":
+        if partition.name[0] == "ceph\\x20data":
             data = '{}{}'.format(dev, partition.number)
-        elif partition.name[0] == "ceph\x20block":
+        elif partition.name[0] == "ceph\\x20block":
             block = '{}{}'.format(dev, partition.number)
     if data is None or block is None:
         log('Could not find data or block partition names, skipping:'
