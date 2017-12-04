@@ -147,6 +147,12 @@ options:
       .
       Specifying this option on a running Ceph OSD node will have no effect
       until new disks are added, at which point new disks will be encrypted.
+  osd-shared:
+    type: boolean
+    default: False
+    description: |
+      By default, the charm will not use devices with mounted partitions; however,
+      by setting osd-shared to True, Ceph partitions will be created and used.
   crush-initial-weight:
     type: float
     default:
