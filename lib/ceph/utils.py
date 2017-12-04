@@ -820,6 +820,8 @@ CEPH_PARTITIONS = [
     '4FBD7E29-9D25-41B8-AFD0-062C0CEFF05D',  # ceph osd data
     '45B0969E-9B03-4F30-B4C6-B4B80CEFF106',  # ceph osd journal
     '89C57F98-2FE5-4DC0-89C1-F3AD0CEFF2BE',  # ceph disk in creation
+    '4FBD7E29-9D25-41B8-AFD0-062C0CEFF05D',  # ceph bluestore data
+    'CAFECAFE-9B03-4F30-B4C6-B4B80CEFF106',  # ceph bluestore block
 ]
 
 
@@ -1063,6 +1065,7 @@ def generate_monitor_secret():
 
     return "{}==".format(res.split('=')[1].strip())
 
+
 # OSD caps taken from ceph-create-keys
 _osd_bootstrap_caps = {
     'mon': [
@@ -1123,6 +1126,7 @@ def import_radosgw_key(key):
             '--add-key={}'.format(key)
         ]
         subprocess.check_call(cmd)
+
 
 # OSD caps taken from ceph-create-keys
 _radosgw_caps = {
@@ -1453,7 +1457,11 @@ def osdize_dev(dev, osd_format, osd_journal, reformat_osd=False,
         return
 
     if is_device_mounted(dev):
-        log('Looks like {} is in use, skipping.'.format(dev))
+        if config('osd-shared'):
+            osdize_part(dev, osd_format, osd_journal, reformat_osd,
+                        ignore_errors, encrypt, bluestore)
+        else:
+            log('Looks like {} is in use, skipping.'.format(dev))
         return
 
     status_set('maintenance', 'Initializing device {}'.format(dev))
@@ -1498,6 +1506,73 @@ def osdize_dev(dev, osd_format, osd_journal, reformat_osd=False,
         if reformat_osd:
             zap_disk(dev)
 
+    try:
+        log("osdize cmd: {}".format(cmd))
+        subprocess.check_call(cmd)
+    except subprocess.CalledProcessError:
+        if ignore_errors:
+            log('Unable to initialize device: {}'.format(dev), WARNING)
+        else:
+            log('Unable to initialize device: {}'.format(dev), ERROR)
+            raise
+
+
+def osdize_part(dev, osd_format, osd_journal, reformat_osd=False,
+                ignore_errors=False, encrypt=False, bluestore=False):
+    """Setup bluestore partitions and ask ceph-disk to prepare them."""
+
+    if not bluestore or not cmp_pkgrevno('ceph', '12.1.0') >= 0:
+        log('Shared-osd only implemented for Luminous Bluestore, skipping:'
+            '{}'.format(dev))
+    status_set('maintenance', 'Initializing shared device {}'.format(dev))
+    if not is_osd_disk(dev):
+        log('Creating ceph partitions on: {}'.format(dev), DEBUG)
+        cmds = ["sgdisk -n 0:0:+100M -t 0:4FBD7E29-9D25-41B8-AFD0-062C0CEFF05D "
+                "-c 0:ceph data {}".format(dev),
+                "sgdisk -n 0:0:0 -t 0:CAFECAFE-9B03-4F30-B4C6-B4B80CEFF106 "
+                "-c 0:ceph block {}".format(dev)
+                ]
+        for cmd in cmds:
+            try:
+                subprocess.check_call(cmd, shell=True)
+            except subprocess.CalledProcessError as e:
+                log("Failed to create Ceph partitions:", ERROR)
+                log("Cmd: {}".format(cmd), ERROR)
+                log("Error: {}".format(e.output), ERROR)
+                return
+
+    cmd = ['ceph-disk', 'prepare']
+    cmd.append('--bluestore')  # only supported option currently
+    if encrypt:
+        cmd.append('--dmcrypt')
+    wal = get_devices('bluestore-wal')
+    if wal:
+        cmd.append('--block.wal')
+        least_used_wal = find_least_used_utility_device(wal)
+        cmd.append(least_used_wal)
+    db = get_devices('bluestore-db')
+    if db:
+        cmd.append('--block.db')
+        least_used_db = find_least_used_utility_device(db)
+        cmd.append(least_used_db)
+
+    partitions = get_partition_list(dev)
+    data = None
+    block = None
+    for partition in partitions:
+        log('Checking partition: {}'.format(partition.name[0]), DEBUG)
+        if partition.name[0] == "ceph\x20data":
+            data = '{}{}'.format(dev, partition.number)
+        elif partition.name[0] == "ceph\x20block":
+            block = '{}{}'.format(dev, partition.number)
+    if data is None or block is None:
+        log('Could not find data or block partition names, skipping:'
+            '{}'.format(dev))
+        return
+    if is_device_mounted(data):
+        log('Looks like {} is in use, skipping.'.format(data))
+        return
+    cmd.extend([data, 'dummy', block])
     try:
         log("osdize cmd: {}".format(cmd))
         subprocess.check_call(cmd)
@@ -2146,6 +2221,7 @@ def dirs_need_ownership_update(service):
 
     # All child directories had the expected ownership
     return False
+
 
 # A dict of valid ceph upgrade paths. Mapping is old -> new
 UPGRADE_PATHS = {
