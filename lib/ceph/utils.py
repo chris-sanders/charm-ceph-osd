@@ -1521,9 +1521,9 @@ def osdize_part(dev, osd_format, osd_journal, reformat_osd=False,
                 ignore_errors=False, encrypt=False, bluestore=False):
     """Setup bluestore partitions and ask ceph-disk to prepare them."""
 
-    if not bluestore or not cmp_pkgrevno('ceph', '12.1.0') >= 0:
-        log('Shared-osd only implemented for Luminous Bluestore, skipping:'
-            '{}'.format(dev))
+    if not (cmp_pkgrevno('ceph', '10.2.0') >= 0 and bluestore):
+        log('Shared-osd only implemented for Bluestore starting with Jewel,'
+            'skipping: {}'.format(dev))
     status_set('maintenance', 'Initializing shared device {}'.format(dev))
     if not is_osd_disk(dev):
         log('Creating ceph partitions on: {}'.format(dev), DEBUG)
