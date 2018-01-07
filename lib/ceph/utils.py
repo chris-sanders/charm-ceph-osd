@@ -1434,9 +1434,13 @@ def get_devices(name):
 def osdize(dev, osd_format, osd_journal, reformat_osd=False,
            ignore_errors=False, encrypt=False, bluestore=False):
     if dev.startswith('/dev'):
-        osdize_dev(dev, osd_format, osd_journal,
-                   reformat_osd, ignore_errors, encrypt,
-                   bluestore)
+        if is_device_mounted(dev) and config('osd-shared'):
+            osdize_part(dev, osd_format, osd_journal, reformat_osd,
+                        ignore_errors, encrypt, bluestore)
+        else:
+            osdize_dev(dev, osd_format, osd_journal,
+                       reformat_osd, ignore_errors, encrypt,
+                       bluestore)
     else:
         osdize_dir(dev, encrypt, bluestore)
 
@@ -1457,11 +1461,7 @@ def osdize_dev(dev, osd_format, osd_journal, reformat_osd=False,
         return
 
     if is_device_mounted(dev):
-        if config('osd-shared'):
-            osdize_part(dev, osd_format, osd_journal, reformat_osd,
-                        ignore_errors, encrypt, bluestore)
-        else:
-            log('Looks like {} is in use, skipping.'.format(dev))
+        log('Looks like {} is in use, skipping.'.format(dev))
         return
 
     status_set('maintenance', 'Initializing device {}'.format(dev))
@@ -1524,6 +1524,7 @@ def osdize_part(dev, osd_format, osd_journal, reformat_osd=False,
     if not (cmp_pkgrevno('ceph', '10.2.0') >= 0 and bluestore):
         log('Shared-osd only implemented for Bluestore starting with Jewel,'
             'skipping: {}'.format(dev))
+        return
     status_set('maintenance', 'Initializing shared device {}'.format(dev))
     if not is_osd_disk(dev):
         log('Creating ceph partitions on: {}'.format(dev), DEBUG)
