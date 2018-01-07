@@ -824,6 +824,17 @@ CEPH_PARTITIONS = [
     'CAFECAFE-9B03-4F30-B4C6-B4B80CEFF106',  # ceph bluestore block
 ]
 
+CEPH_PARTITION_NAMES = {
+    'encrypted_disk': CEPH_PARTITIONS[0],
+    'encrypted_journal': CEPH_PARTITIONS[1],
+    'encrypted_data': CEPH_PARTITIONS[2],
+    'filestore_data': CEPH_PARTITIONS[3],
+    'filestore_journal': CEPH_PARTITIONS[4],
+    'filestore_disk': CEPH_PARTITIONS[5],
+    'bluestore_data': CEPH_PARTITIONS[6],
+    'bluestore_block': CEPH_PARTITIONS[7],
+}
+
 
 def umount(mount_point):
     """This function unmounts a mounted directory forcibly. This will
@@ -990,6 +1001,24 @@ def is_osd_disk(dev):
                 "error: {}. Skipping".format(partition.minor, dev, e),
                 level=ERROR)
     return False
+
+
+def find_osd_partition(dev, guid):
+    partitions = get_partition_list(dev)
+    for partition in partitions:
+        try:
+            info = str(subprocess
+                       .check_output(['sgdisk', '-i', partition.number, dev])
+                       .decode('UTF-8'))
+            info = info.split("\n")  # IGNORE:E1103
+            for line in info:
+                if line.contains(guid):
+                    return partition
+        except subprocess.CalledProcessError as e:
+            log("sgdisk inspection of partition {} on {} failed with "
+                "error: {}. Skipping".format(partition.minor, dev, e),
+                level=ERROR)
+    return None
 
 
 def start_osds(devices):
@@ -1431,6 +1460,40 @@ def get_devices(name):
     return set(devices)
 
 
+def build_disk_cmd(osd_format=False, reformat_osd=False,
+                   encrypt=False, bluestore=False):
+    cmd = ['ceph-disk', 'prepare']
+    # Later versions of ceph support more options
+    if cmp_pkgrevno('ceph', '0.60') >= 0:
+        if encrypt:
+            cmd.append('--dmcrypt')
+    if cmp_pkgrevno('ceph', '0.48.3') >= 0:
+        if osd_format and not bluestore:
+            cmd.append('--fs-type')
+            cmd.append(osd_format)
+
+        if reformat_osd:
+            cmd.append('--zap-disk')
+
+        # NOTE(jamespage): enable experimental bluestore support
+        if cmp_pkgrevno('ceph', '10.2.0') >= 0 and bluestore:
+            cmd.append('--bluestore')
+            wal = get_devices('bluestore-wal')
+            if wal:
+                cmd.append('--block.wal')
+                least_used_wal = find_least_used_utility_device(wal)
+                cmd.append(least_used_wal)
+            db = get_devices('bluestore-db')
+            if db:
+                cmd.append('--block.db')
+                least_used_db = find_least_used_utility_device(db)
+                cmd.append(least_used_db)
+        elif cmp_pkgrevno('ceph', '12.1.0') >= 0 and not bluestore:
+            cmd.append('--filestore')
+
+    return cmd
+
+
 def osdize(dev, osd_format, osd_journal, reformat_osd=False,
            ignore_errors=False, encrypt=False, bluestore=False):
     if dev.startswith('/dev'):
@@ -1465,46 +1528,18 @@ def osdize_dev(dev, osd_format, osd_journal, reformat_osd=False,
         return
 
     status_set('maintenance', 'Initializing device {}'.format(dev))
-    cmd = ['ceph-disk', 'prepare']
-    # Later versions of ceph support more options
-    if cmp_pkgrevno('ceph', '0.60') >= 0:
-        if encrypt:
-            cmd.append('--dmcrypt')
-    if cmp_pkgrevno('ceph', '0.48.3') >= 0:
-        if osd_format and not bluestore:
-            cmd.append('--fs-type')
-            cmd.append(osd_format)
+    cmd = build_disk_cmd(osd_format, reformat_osd,
+                         encrypt, bluestore)
 
-        if reformat_osd:
-            cmd.append('--zap-disk')
+    cmd.append(dev)
 
-        # NOTE(jamespage): enable experimental bluestore support
-        if cmp_pkgrevno('ceph', '10.2.0') >= 0 and bluestore:
-            cmd.append('--bluestore')
-            wal = get_devices('bluestore-wal')
-            if wal:
-                cmd.append('--block.wal')
-                least_used_wal = find_least_used_utility_device(wal)
-                cmd.append(least_used_wal)
-            db = get_devices('bluestore-db')
-            if db:
-                cmd.append('--block.db')
-                least_used_db = find_least_used_utility_device(db)
-                cmd.append(least_used_db)
-        elif cmp_pkgrevno('ceph', '12.1.0') >= 0 and not bluestore:
-            cmd.append('--filestore')
+    if osd_journal:
+        least_used = find_least_used_utility_device(osd_journal)
+        cmd.append(least_used)
 
-        cmd.append(dev)
-
-        if osd_journal:
-            least_used = find_least_used_utility_device(osd_journal)
-            cmd.append(least_used)
-    else:
-        # Just provide the device - no other options
-        # for older versions of ceph
-        cmd.append(dev)
-        if reformat_osd:
-            zap_disk(dev)
+    if not cmp_pkgrevno('ceph', '0.48.3') >= 0 and reformat_osd:
+        # Manually zap on old ceph
+        zap_disk(dev)
 
     try:
         log("osdize cmd: {}".format(cmd))
@@ -1521,17 +1556,17 @@ def osdize_part(dev, osd_format, osd_journal, reformat_osd=False,
                 ignore_errors=False, encrypt=False, bluestore=False):
     """Setup bluestore partitions and ask ceph-disk to prepare them."""
 
-    if not (cmp_pkgrevno('ceph', '10.2.0') >= 0 and bluestore):
-        log('Shared-osd only implemented for Bluestore starting with Jewel,'
-            'skipping: {}'.format(dev))
-        return
+    # if not (cmp_pkgrevno('ceph', '10.2.0') >= 0 and bluestore):
+    #     log('Shared-osd only implemented for Bluestore starting with Jewel,'
+    #         'skipping: {}'.format(dev))
+    #     return
     status_set('maintenance', 'Initializing shared device {}'.format(dev))
     if not is_osd_disk(dev):
         log('Creating ceph partitions on: {}'.format(dev), DEBUG)
-        cmds = ['sgdisk -n 0:0:+100M -t 0:4FBD7E29-9D25-41B8-AFD0-062C0CEFF05D '
-                '-c "0:ceph data" {}'.format(dev),
-                'sgdisk -n 0:0:0 -t 0:CAFECAFE-9B03-4F30-B4C6-B4B80CEFF106 '
-                '-c "0:ceph block" {}'.format(dev),
+        cmds = ['sgdisk -n 0:0:+100M -t 0:{} -c "0:ceph data" {}'
+                .format(CEPH_PARTITION_NAMES['bluestore_data'], dev),
+                'sgdisk -n 0:0:0 -t 0:{} -c "0:ceph block" {}'
+                .format(CEPH_PARTITION_NAMES['bluestore_block'], dev),
                 'partprobe'
                 ]
         for cmd in cmds:
@@ -1543,38 +1578,30 @@ def osdize_part(dev, osd_format, osd_journal, reformat_osd=False,
                 log("Error: {}".format(e.output), ERROR)
                 return
 
-    cmd = ['ceph-disk', 'prepare']
-    cmd.append('--bluestore')  # only supported option currently
-    if encrypt:
-        cmd.append('--dmcrypt')
-    wal = get_devices('bluestore-wal')
-    if wal:
-        cmd.append('--block.wal')
-        least_used_wal = find_least_used_utility_device(wal)
-        cmd.append(least_used_wal)
-    db = get_devices('bluestore-db')
-    if db:
-        cmd.append('--block.db')
-        least_used_db = find_least_used_utility_device(db)
-        cmd.append(least_used_db)
+    cmd = build_disk_cmd(osd_format=osd_format, reformat_osd=False,
+                         encrypt=encrypt, bluestore=bluestore)
 
-    partitions = get_partition_list(dev)
-    data = None
-    block = None
-    for partition in partitions:
-        log('Checking partition: {}'.format(partition.name[0]), DEBUG)
-        if partition.name[0] == "ceph\\x20data":
-            data = '{}{}'.format(dev, partition.number)
-        elif partition.name[0] == "ceph\\x20block":
-            block = '{}{}'.format(dev, partition.number)
-    if data is None or block is None:
-        log('Could not find data or block partition names, skipping:'
-            '{}'.format(dev))
+    # TODO: Modify following for filestore support
+    data_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['bluestore_data'])
+    block_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['bluestore_block'])
+    if data_partition is None:
+        log('Could not find data partition, skipping: {}'.format(dev))
         return
+    if block_partition is None:
+        log('Could not find block partition, skipping: {}'.format(dev))
+        return
+    data = '{}{}'.format(dev, data_partition.number)
+    block = '{}{}'.format(dev, block_partition.number)
     if is_device_mounted(data):
         log('Looks like {} is in use, skipping.'.format(data))
         return
+
+    # if osd_journal:
+    #     least_used = find_least_used_utility_device(osd_journal)
+    #     cmd.append(least_used)
+
     cmd.extend([data, 'dummy', block])
+
     try:
         log("osdize cmd: {}".format(cmd))
         subprocess.check_call(cmd)
