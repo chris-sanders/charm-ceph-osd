@@ -1012,7 +1012,7 @@ def find_osd_partition(dev, guid):
                        .decode('UTF-8'))
             info = info.split("\n")  # IGNORE:E1103
             for line in info:
-                if line.contains(guid):
+                if guid in line:
                     return partition
         except subprocess.CalledProcessError as e:
             log("sgdisk inspection of partition {} on {} failed with "
