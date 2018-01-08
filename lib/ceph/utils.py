@@ -1498,8 +1498,8 @@ def osdize(dev, osd_format, osd_journal, reformat_osd=False,
            ignore_errors=False, encrypt=False, bluestore=False):
     if dev.startswith('/dev'):
         if is_device_mounted(dev) and config('osd-shared'):
-            osdize_part(dev, osd_format, osd_journal, reformat_osd,
-                        ignore_errors, encrypt, bluestore)
+            osdize_part(dev, osd_format, osd_journal, ignore_errors,
+                        encrypt, bluestore)
         else:
             osdize_dev(dev, osd_format, osd_journal,
                        reformat_osd, ignore_errors, encrypt,
@@ -1552,9 +1552,19 @@ def osdize_dev(dev, osd_format, osd_journal, reformat_osd=False,
             raise
 
 
-def osdize_part(dev, osd_format, osd_journal, reformat_osd=False,
-                ignore_errors=False, encrypt=False, bluestore=False):
-    """Setup partitions and ask ceph-disk to prepare them."""
+def osdize_part(dev, osd_format, osd_journal, ignore_errors=False,
+                encrypt=False, bluestore=False):
+    """Setup partitions if missing and ask ceph-disk to prepare them.
+
+    :param dev: str. Path to a block device. ex: /dev/sda
+    :param osd_format: str. Filesystem to use on Filestore partitions.
+    :param osd_journal: str. Set of osd_journals to use instead of partition.
+    :param ignore_errors: bool. If true subprocess commands log error instead of
+    warning
+    :param encrypt: bool. Should the OSD partition be encrypted at rest
+    :param bluestore: bool. Should the OSD use bluestore backing
+    :returns: None
+    """
 
     status_set('maintenance', 'Initializing shared device {}'.format(dev))
     if not is_osd_disk(dev):
