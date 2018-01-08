@@ -1560,6 +1560,7 @@ def osdize_part(dev, osd_format, osd_journal, reformat_osd=False,
     if not is_osd_disk(dev):
         log('Creating ceph partitions on: {}'.format(dev), DEBUG)
         if bluestore:
+            # bluestore partition creation
             cmds = ['sgdisk -n 0:0:+100M -t 0:{} -c "0:ceph data" {}'
                     .format(CEPH_PARTITION_NAMES['bluestore_data'], dev),
                     'sgdisk -n 0:0:0 -t 0:{} -c "0:ceph block" {}'
