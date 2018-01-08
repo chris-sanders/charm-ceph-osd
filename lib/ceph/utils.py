@@ -1554,21 +1554,35 @@ def osdize_dev(dev, osd_format, osd_journal, reformat_osd=False,
 
 def osdize_part(dev, osd_format, osd_journal, reformat_osd=False,
                 ignore_errors=False, encrypt=False, bluestore=False):
-    """Setup bluestore partitions and ask ceph-disk to prepare them."""
+    """Setup partitions and ask ceph-disk to prepare them."""
 
-    # if not (cmp_pkgrevno('ceph', '10.2.0') >= 0 and bluestore):
-    #     log('Shared-osd only implemented for Bluestore starting with Jewel,'
-    #         'skipping: {}'.format(dev))
-    #     return
     status_set('maintenance', 'Initializing shared device {}'.format(dev))
     if not is_osd_disk(dev):
         log('Creating ceph partitions on: {}'.format(dev), DEBUG)
-        cmds = ['sgdisk -n 0:0:+100M -t 0:{} -c "0:ceph data" {}'
-                .format(CEPH_PARTITION_NAMES['bluestore_data'], dev),
-                'sgdisk -n 0:0:0 -t 0:{} -c "0:ceph block" {}'
-                .format(CEPH_PARTITION_NAMES['bluestore_block'], dev),
-                'partprobe'
-                ]
+        if bluestore:
+            cmds = ['sgdisk -n 0:0:+100M -t 0:{} -c "0:ceph data" {}'
+                    .format(CEPH_PARTITION_NAMES['bluestore_data'], dev),
+                    'sgdisk -n 0:0:0 -t 0:{} -c "0:ceph block" {}'
+                    .format(CEPH_PARTITION_NAMES['bluestore_block'], dev),
+                    'partprobe'
+                    ]
+        else:
+            # filestore partition creation
+            if encrypt:
+                data_guid = CEPH_PARTITION_NAMES['encrypted_data']
+                journal_guid = CEPH_PARTITION_NAMES['encrypted_journal']
+            else:
+                data_guid = CEPH_PARTITION_NAMES['filestore_data']
+                journal_guid = CEPH_PARTITION_NAMES['filestore_journal']
+            cmds = []
+            if not osd_journal:
+                cmds.extend(['sgdisk -n 0:0:+1G -t 0:{} -c "0:ceph journal" {}'
+                             .format(journal_guid, dev)
+                             ])
+            cmds.extend(['sgdisk -n 0:0:0 -t 0:{} -c "0:ceph data" {}'
+                         .format(data_guid, dev),
+                         'partprobe'
+                         ])
         for cmd in cmds:
             try:
                 subprocess.check_call(cmd, shell=True)
@@ -1581,26 +1595,43 @@ def osdize_part(dev, osd_format, osd_journal, reformat_osd=False,
     cmd = build_disk_cmd(osd_format=osd_format, reformat_osd=False,
                          encrypt=encrypt, bluestore=bluestore)
 
-    # TODO: Modify following for filestore support
-    data_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['bluestore_data'])
-    block_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['bluestore_block'])
+    # Find partition paths
+    if bluestore:
+        data_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['bluestore_data'])
+        block_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['bluestore_block'])
+        if block_partition is None:
+            log('Could not find block partition, skipping: {}'.format(dev))
+            return
+    else:
+        if encrypt:
+            data_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['encrypted_data'])
+            journal_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['encrypted_journal'])
+        else:
+            data_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['filestore_data'])
+            journal_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['filestore_journal'])
+
+        if not osd_journal and journal_partition is None:
+            log('Could not find journal partition, skipping: {}'.format(dev))
+            return
     if data_partition is None:
         log('Could not find data partition, skipping: {}'.format(dev))
         return
-    if block_partition is None:
-        log('Could not find block partition, skipping: {}'.format(dev))
-        return
+
     data = '{}{}'.format(dev, data_partition.number)
-    block = '{}{}'.format(dev, block_partition.number)
     if is_device_mounted(data):
         log('Looks like {} is in use, skipping.'.format(data))
         return
 
-    # if osd_journal:
-    #     least_used = find_least_used_utility_device(osd_journal)
-    #     cmd.append(least_used)
-
-    cmd.extend([data, 'dummy', block])
+    # Append partition paths to command
+    if bluestore:
+        block = '{}{}'.format(dev, block_partition.number)
+        cmd.extend([data, 'dummy', block])
+    else:
+        if osd_journal:
+            journal = find_least_used_utility_device(osd_journal)
+        else:
+            journal = '{}{}'.format(dev, journal_partition.number)
+        cmd.extend([data, journal])
 
     try:
         log("osdize cmd: {}".format(cmd))
