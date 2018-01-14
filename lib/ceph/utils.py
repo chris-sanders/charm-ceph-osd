@@ -1568,93 +1568,119 @@ def osdize_part(dev, osd_format, osd_journal, ignore_errors=False,
     :returns: None
     """
 
-    status_set('maintenance', 'Initializing shared device {}'.format(dev))
-    if not is_osd_disk(dev):
-        log('Creating ceph partitions on: {}'.format(dev), DEBUG)
-        if bluestore:
-            # bluestore partition creation
-            cmds = ['sgdisk -n 0:0:+100M -t 0:{} -c "0:ceph data" {}'
-                    .format(CEPH_PARTITION_NAMES['bluestore_data'], dev),
-                    'sgdisk -n 0:0:0 -t 0:{} -c "0:ceph block" {}'
-                    .format(CEPH_PARTITION_NAMES['bluestore_block'], dev),
-                    'partprobe'
-                    ]
-        else:
-            # filestore partition creation
-            if encrypt:
-                data_guid = CEPH_PARTITION_NAMES['encrypted_data']
-                journal_guid = CEPH_PARTITION_NAMES['encrypted_journal']
-            else:
-                data_guid = CEPH_PARTITION_NAMES['filestore_data']
-                journal_guid = CEPH_PARTITION_NAMES['filestore_journal']
-            cmds = []
-            if not osd_journal:
-                cmds.extend(['sgdisk -n 0:0:+1G -t 0:{} -c "0:ceph journal" {}'
-                             .format(journal_guid, dev)
-                             ])
-            cmds.extend(['sgdisk -n 0:0:0 -t 0:{} -c "0:ceph data" {}'
-                         .format(data_guid, dev),
-                         'partprobe'
-                         ])
-        for cmd in cmds:
-            try:
-                subprocess.check_call(cmd, shell=True)
-            except subprocess.CalledProcessError as e:
-                log("Failed to create Ceph partitions:", ERROR)
-                log("Cmd: {}".format(cmd), ERROR)
-                log("Error: {}".format(e.output), ERROR)
-                return
+    status_set('maintenance', 'Checking shared device {}'.format(dev))
+    if is_osd_disk(dev):
+        log('Disk is already an osd, skipping {}'.format(dev))
+        return
 
+    log('Creating ceph partitions on: {}'.format(dev), DEBUG)
     cmd = build_disk_cmd(osd_format=osd_format, reformat_osd=False,
                          encrypt=encrypt, bluestore=bluestore)
+    log('ceph-disk cmd: {}'.format(cmd), DEBUG)
 
-    # Find partition paths
-    if bluestore:
-        data_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['bluestore_data'])
-        block_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['bluestore_block'])
-        if block_partition is None:
-            log('Could not find block partition, skipping: {}'.format(dev))
-            return
-    else:
-        if encrypt:
-            data_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['encrypted_data'])
-            journal_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['encrypted_journal'])
-        else:
-            data_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['filestore_data'])
-            journal_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['filestore_journal'])
-
-        if not osd_journal and journal_partition is None:
-            log('Could not find journal partition, skipping: {}'.format(dev))
-            return
-    if data_partition is None:
-        log('Could not find data partition, skipping: {}'.format(dev))
-        return
-
-    data = '{}{}'.format(dev, data_partition.number)
-    if is_device_mounted(data):
-        log('Looks like {} is in use, skipping.'.format(data))
-        return
-
-    # Append partition paths to command
-    if bluestore:
-        block = '{}{}'.format(dev, block_partition.number)
-        cmd.extend([data, 'dummy', block])
-    else:
-        if osd_journal:
-            journal = find_least_used_utility_device(osd_journal)
-        else:
-            journal = '{}{}'.format(dev, journal_partition.number)
-        cmd.extend([data, journal])
-
+    argv = cmd[1:]
+    argv.append(dev)
     try:
-        log("osdize cmd: {}".format(cmd))
-        subprocess.check_call(cmd)
+        subprocess.check_call(['./files/ceph/setup_osd.py'] + argv, shell=True)
     except subprocess.CalledProcessError:
         if ignore_errors:
             log('Unable to initialize device: {}'.format(dev), WARNING)
         else:
             log('Unable to initialize device: {}'.format(dev), ERROR)
             raise
+
+    # log('ceph-disk argv: {}'.format(argv), DEBUG)
+    # args = ceph_disk.parse_args(argv)
+    # log('ceph-disk args: {}'.format(args), DEBUG)
+    # ceph_disk.setup_logging(args.verbose, args.log_stdout)
+    # ceph_disk.setup_statedir(args.statedir)
+    # ceph_disk.setup_sysconfdir(args.sysconfdir)
+    # factory = ceph_disk.Prepare(args).factory(args)
+    # if not is_osd_disk(dev):
+    #     log('Creating ceph partitions on: {}'.format(dev), DEBUG)
+
+    #     if args.dmcrypt:
+    #         # Setup lockbox partition
+    #         lockbox = ceph_disk.Lockbox(args)
+    #         device_args = copy.copy(args)
+    #         device_args.dmcrypt = False
+    #         lockbox.device = ceph_disk.Device.factory(args.lockbox, device_args)
+    #         partition_num = lockbox.device.create_partition(uuid=args.lockbox_uuid,
+    #                                                         name='lockbox',
+    #                                                         size=10)
+    #         lockbox.partition = lockbox.device.get_partition(partition_num)
+    #         factory.lockbox = lockbox
+    #         factory.lockbox.populate()
+
+    #     # Setup data partition
+    #     factory.data.sanity_checks()
+    #     factory.data.set_variables()
+    #     factory.data.device = ceph_disk.Device.factory(args.data, args)
+
+    #     partition_num = factory.data.device.create_partition(uuid=args.osd_uuid,
+    #                                                          name='data',
+    #                                                          size=factory.data.get_space_size())
+    #     factory.data.partition = factory.data.device.get_partition(partition_num)
+
+    #     # Setup block prtition
+    #     args.data = 'dummy'
+    #     factory.block.prepare()  # TODO: Prepare other objects not just block?
+    #     args.data = args.block
+
+    #     # Populate data partitions
+    #     factory.data.populate_data_path_device(factory.block)
+    # else:
+    #     log('Existig partitios found, skipping osdize_part', DEBUG)
+    #     return
+
+    # TODO: Deal with existing partitions
+    # Find partition paths
+    # if bluestore:
+    #     data_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['bluestore_data'])
+    #     block_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['bluestore_block'])
+    #     if block_partition is None:
+    #         log('Could not find block partition, skipping: {}'.format(dev))
+    #         return
+    # else:
+    #     if encrypt:
+    #         data_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['encrypted_data'])
+    #         journal_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['encrypted_journal'])
+    #     else:
+    #         data_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['filestore_data'])
+    #         journal_partition = find_osd_partition(dev, CEPH_PARTITION_NAMES['filestore_journal'])
+
+    #     if not osd_journal and journal_partition is None:
+    #         log('Could not find journal partition, skipping: {}'.format(dev))
+    #         return
+    # if data_partition is None:
+    #     log('Could not find data partition, skipping: {}'.format(dev))
+    #     return
+
+    # data = '{}{}'.format(dev, data_partition.number)
+    # if is_device_mounted(data):
+    #     log('Looks like {} is in use, skipping.'.format(data))
+    #     return
+
+    # # Append partition paths to command
+    # if bluestore:
+    #     block = '{}{}'.format(dev, block_partition.number)
+    #     cmd.extend([data, 'dummy', block])
+    # else:
+    #     if osd_journal:
+    #         journal = find_least_used_utility_device(osd_journal)
+    #     else:
+    #         journal = '{}{}'.format(dev, journal_partition.number)
+    #     cmd.extend([data, journal])
+
+    # try:
+    #     log("osdize cmd: {}".format(cmd))
+    #     subprocess.check_call(cmd)
+    # except subprocess.CalledProcessError:
+    #     if ignore_errors:
+    #         log('Unable to initialize device: {}'.format(dev), WARNING)
+    #     else:
+    #         log('Unable to initialize device: {}'.format(dev), ERROR)
+    #         raise
 
 
 def osdize_dir(path, encrypt=False, bluestore=False):
