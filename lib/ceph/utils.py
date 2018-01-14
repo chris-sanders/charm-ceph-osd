@@ -822,6 +822,7 @@ CEPH_PARTITIONS = [
     '89C57F98-2FE5-4DC0-89C1-F3AD0CEFF2BE',  # ceph disk in creation
     '4FBD7E29-9D25-41B8-AFD0-062C0CEFF05D',  # ceph bluestore data
     'CAFECAFE-9B03-4F30-B4C6-B4B80CEFF106',  # ceph bluestore block
+    'FB3AABF9-D25F-47CC-BF5E-721D1816496B',  # ceph lockbox
 ]
 
 CEPH_PARTITION_NAMES = {
@@ -833,6 +834,7 @@ CEPH_PARTITION_NAMES = {
     'filestore_disk': CEPH_PARTITIONS[5],
     'bluestore_data': CEPH_PARTITIONS[6],
     'bluestore_block': CEPH_PARTITIONS[7],
+    'lockbox': CEPH_PARTITIONS[8],
 }
 
 
