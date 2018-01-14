@@ -29,7 +29,6 @@ def create_partitions(argv):
         factory.lockbox.populate()
 
     # Setup data partition
-    factory.data.sanity_checks()
     factory.data.set_variables()
     factory.data.device = ceph_disk.Device.factory(args.data, args)
 
