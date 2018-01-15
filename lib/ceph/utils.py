@@ -1541,18 +1541,22 @@ def osdize_dev(dev, osd_format, osd_journal, reformat_osd=False,
         return
 
     status_set('maintenance', 'Initializing device {}'.format(dev))
-    cmd = build_disk_cmd(osd_format, reformat_osd,
-                         encrypt, bluestore)
+    # Note(chrissanders): skip the --zap-disk command in ceph disk
+    # and run manual clear to support dmcrypt bluestore in 12.2.1
+    cmd = build_disk_cmd(osd_format=osd_format, reformat_osd=False,
+                         encrypt=encrypt, bluestore=bluestore)
+
+    if reformat_osd:
+        # NOTE(chrissanders): wipe partitions or lockbox fails to recreate
+        for partition in get_partition_list(dev):
+            subprocess.check_call('wipefs -a {}'.format(dev+partition.number), shell=True)
+        zap_disk(dev)
 
     cmd.append(dev)
 
     if osd_journal:
         least_used = find_least_used_utility_device(osd_journal)
         cmd.append(least_used)
-
-    if not cmp_pkgrevno('ceph', '0.48.3') >= 0 and reformat_osd:
-        # Manually zap on old ceph
-        zap_disk(dev)
 
     try:
         log("osdize cmd: {}".format(cmd))
