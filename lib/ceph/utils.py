@@ -814,16 +814,18 @@ DISK_FORMATS = [
 ]
 
 CEPH_PARTITIONS = [
-    '89C57F98-2FE5-4DC0-89C1-5EC00CEFF2BE',  # ceph encrypted disk in creation
-    '45B0969E-9B03-4F30-B4C6-5EC00CEFF106',  # ceph encrypted luks journal
-    '45B0969E-9B03-4F30-B4C6-5EC00CEFF106',  # ceph encrypted plain journal
-    '4FBD7E29-9D25-41B8-AFD0-35865CEFF05D',  # ceph encrypted luks osd data
-    '4FBD7E29-9D25-41B8-AFD0-5EC00CEFF05D',  # ceph encrypted plain osd data
-    '4FBD7E29-9D25-41B8-AFD0-062C0CEFF05D',  # ceph osd data
-    '45B0969E-9B03-4F30-B4C6-B4B80CEFF106',  # ceph osd journal
-    '89C57F98-2FE5-4DC0-89C1-F3AD0CEFF2BE',  # ceph disk in creation
+    '45B0969E-9B03-4F30-B4C6-B4B80CEFF106',  # ceph journal
     'CAFECAFE-9B03-4F30-B4C6-B4B80CEFF106',  # ceph block
+    '4FBD7E29-9D25-41B8-AFD0-062C0CEFF05D',  # ceph osd (data)
+    '89C57F98-2FE5-4DC0-89C1-F3AD0CEFF2BE',  # ceph osd (data) in creation
     'FB3AABF9-D25F-47CC-BF5E-721D1816496B',  # ceph lockbox
+    '45b0969e-9b03-4f30-b4c6-35865ceff106',  # ceph encrypted luks journal
+    'CAFECAFE-9B03-4F30-B4C6-35865CEFF106',  # ceph encrypted luks block
+    '4FBD7E29-9D25-41B8-AFD0-35865CEFF05D',  # ceph encrypted luks osd (data)
+    '45B0969E-9B03-4F30-B4C6-5EC00CEFF106',  # ceph encrypted plain journal
+    'CAFECAFE-9B03-4F30-B4C6-5EC00CEFF106',  # ceph encrypted plain block
+    '4FBD7E29-9D25-41B8-AFD0-5EC00CEFF05D',  # ceph encrypted plain osd data
+    '89C57F98-2FE5-4DC0-89C1-5EC00CEFF2BE',  # ceph encrypted osd (data) in creation
 ]
 
 
