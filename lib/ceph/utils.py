@@ -826,18 +826,6 @@ CEPH_PARTITIONS = [
     'FB3AABF9-D25F-47CC-BF5E-721D1816496B',  # ceph lockbox
 ]
 
-CEPH_PARTITION_NAMES = {
-    'encrypted_disk': CEPH_PARTITIONS[0],
-    'encrypted_journal': CEPH_PARTITIONS[1],
-    'encrypted_data': CEPH_PARTITIONS[2],
-    'filestore_data': CEPH_PARTITIONS[3],
-    'filestore_journal': CEPH_PARTITIONS[4],
-    'filestore_disk': CEPH_PARTITIONS[5],
-    'bluestore_data': CEPH_PARTITIONS[6],
-    'bluestore_block': CEPH_PARTITIONS[7],
-    'lockbox': CEPH_PARTITIONS[8],
-}
-
 
 def umount(mount_point):
     """This function unmounts a mounted directory forcibly. This will
