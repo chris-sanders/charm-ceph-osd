@@ -1018,24 +1018,6 @@ def get_osd_partitions(dev):
     return osd_partitions
 
 
-def find_osd_partition(dev, guid):
-    partitions = get_partition_list(dev)
-    for partition in partitions:
-        try:
-            info = str(subprocess
-                       .check_output(['sgdisk', '-i', partition.number, dev])
-                       .decode('UTF-8'))
-            info = info.split("\n")  # IGNORE:E1103
-            for line in info:
-                if guid in line:
-                    return partition
-        except subprocess.CalledProcessError as e:
-            log("sgdisk inspection of partition {} on {} failed with "
-                "error: {}. Skipping".format(partition.minor, dev, e),
-                level=ERROR)
-    return None
-
-
 def start_osds(devices):
     # Scan for ceph block devices
     rescan_osd_devices()
