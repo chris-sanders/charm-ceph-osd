@@ -1497,7 +1497,7 @@ def osdize(dev, osd_format, osd_journal, reformat_osd=False,
     if dev.startswith('/dev'):
         if is_device_mounted(dev) and config('osd-shared'):
             osdize_part(dev, osd_format, osd_journal, ignore_errors,
-                        encrypt, bluestore)
+                        encrypt, bluestore, reformat_osd)
         else:
             osdize_dev(dev, osd_format, osd_journal,
                        reformat_osd, ignore_errors, encrypt,
@@ -1527,16 +1527,20 @@ def osdize_dev(dev, osd_format, osd_journal, reformat_osd=False,
 
     status_set('maintenance', 'Initializing device {}'.format(dev))
     # Note(chrissanders): skip the --zap-disk command in ceph disk
-    # and run manual clear to support dmcrypt bluestore in 12.2.1
+    # and run manual zap to support dmcrypt bluestore in 12.2.1
     cmd = build_disk_cmd(osd_format=osd_format, reformat_osd=False,
                          encrypt=encrypt, bluestore=bluestore)
 
     if reformat_osd:
-        # NOTE(chrissanders): wipe partitions or lockbox fails to recreate
-        for partition in get_partition_list(dev):
-            subprocess.check_call('wipefs -a {}'.format(dev+partition.number),
-                                  shell=True)
-        zap_disk(dev)
+        try:
+            log("zapping: {}".format(cmd))
+            subprocess.check_call("ceph-disk zap {}".format(dev), shell=True)
+        except subprocess.CalledProcessError:
+            if ignore_errors:
+                log('Unable to zap device: {}'.format(dev), WARNING)
+            else:
+                log('Unable to zap device: {}'.format(dev), ERROR)
+                raise
 
     cmd.append(dev)
 
@@ -1556,7 +1560,7 @@ def osdize_dev(dev, osd_format, osd_journal, reformat_osd=False,
 
 
 def osdize_part(dev, osd_format, osd_journal, ignore_errors=False,
-                encrypt=False, bluestore=False):
+                encrypt=False, bluestore=False, reformat_osd=False):
     """Setup partitions if missing and ask ceph-disk to prepare them.
 
     :param dev: str. Path to a block device. ex: /dev/sda
@@ -1571,7 +1575,7 @@ def osdize_part(dev, osd_format, osd_journal, ignore_errors=False,
 
     status_set('maintenance', 'Checking shared device {}'.format(dev))
     if is_osd_disk(dev):
-        if not osd_format:
+        if not reformat_osd:
             log('Disk is already an osd, skipping {}'.format(dev))
             return
         osd_partitions = get_osd_partitions(dev)
@@ -1582,7 +1586,12 @@ def osdize_part(dev, osd_format, osd_journal, ignore_errors=False,
                 return
         for partition in osd_partitions:
             log('Clearing partition: {}'.format(partition))
+            # Size in M to zero, cap at 200M for speed
+            count = min(int(int(partition.sectors) / 2048), 200)
             cmds = ['wipefs -a {}'.format(dev+partition.number),
+                    'dd if=/dev/zero of={} bs=1M'
+                    ' count={}'.format(dev+partition.number,
+                                       count),
                     'sgdisk -d {} {}'.format(partition.number, dev),
                     'partprobe {}'.format(dev)
                     ]
