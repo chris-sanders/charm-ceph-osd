@@ -1533,7 +1533,7 @@ def osdize_dev(dev, osd_format, osd_journal, reformat_osd=False,
 
     if reformat_osd:
         try:
-            log("zapping: {}".format(cmd))
+            log("zapping: {}".format(dev))
             subprocess.check_call("ceph-disk zap {}".format(dev), shell=True)
         except subprocess.CalledProcessError:
             if ignore_errors:
